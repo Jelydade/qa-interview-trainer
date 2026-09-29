@@ -1,7 +1,19 @@
 import './style.css';
 import './toggle.css';
+import './study-deepening.css';
 import { questions, sections } from './questions.js';
 import { studyAnswers } from './studyAnswers.js';
+import { studyAdditions } from './studyAdditions.js';
+import { studyAdditionsFoundations } from './studyAdditionsFoundations.js';
+import { studyAdditionsArchitecture } from './studyAdditionsArchitecture.js';
+import { studyAdditionsLanguages } from './studyAdditionsLanguages.js';
+import { studyAdditionsOopAlgorithms } from './studyAdditionsOopAlgorithms.js';
+import { studyAdditionsPython } from './studyAdditionsPython.js';
+import { studyAdditionsPythonAdvanced } from './studyAdditionsPythonAdvanced.js';
+import { studyAdditionsPytestWeb } from './studyAdditionsPytestWeb.js';
+import { studyAdditionsInfrastructure } from './studyAdditionsInfrastructure.js';
+import { studyAdditionsAutomation } from './studyAdditionsAutomation.js';
+import { studyAdditionsFinal } from './studyAdditionsFinal.js';
 
 const app = document.querySelector('#app');
 const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
@@ -129,6 +141,7 @@ function render() {
           <div class="answer-rule"></div>
           <p class="answer-title">Сильный ответ</p>
           ${currentQuestion.answerHtml ?? studyAnswers[currentQuestion.question] ?? currentQuestion.answer.split('\n\n').map((text) => `<p>${text}</p>`).join('')}
+          ${studyAdditions[currentQuestion.question] ?? studyAdditionsFoundations[currentQuestion.question] ?? studyAdditionsArchitecture[currentQuestion.question] ?? studyAdditionsLanguages[currentQuestion.question] ?? studyAdditionsOopAlgorithms[currentQuestion.question] ?? studyAdditionsPython[currentQuestion.question] ?? studyAdditionsPythonAdvanced[currentQuestion.question] ?? studyAdditionsPytestWeb[currentQuestion.question] ?? studyAdditionsInfrastructure[currentQuestion.question] ?? studyAdditionsAutomation[currentQuestion.question] ?? studyAdditionsFinal[currentQuestion.question] ?? ''}
           <aside><span>✦</span><div><b>На заметку</b><p>${currentQuestion.tip}</p></div></aside>
         </div>
         <div class="actions">

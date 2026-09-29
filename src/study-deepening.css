@@ -1,0 +1,15 @@
+.study-deepening {
+  margin: 22px 0 4px;
+  padding: 16px 18px;
+  border: 1px solid #3c4c70;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(32, 48, 78, .8), rgba(24, 37, 62, .7));
+}
+
+.study-deepening p:last-child {
+  margin-bottom: 0;
+}
+
+.study-deepening b {
+  color: #dffbb0;
+}
