@@ -5,6 +5,7 @@ import { studyAnswers } from './studyAnswers.js';
 
 const app = document.querySelector('#app');
 const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
+const ORDER_PREFERENCE_KEY = 'aqa-trainer.questions-in-order';
 const getSavedAnswerPreference = () => {
   try {
     return localStorage.getItem(ANSWER_PREFERENCE_KEY) === 'true';
@@ -19,10 +20,25 @@ const saveAnswerPreference = (value) => {
     // Приложение остаётся рабочим, если хранилище недоступно.
   }
 };
+const getSavedOrderPreference = () => {
+  try {
+    return localStorage.getItem(ORDER_PREFERENCE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+const saveOrderPreference = (value) => {
+  try {
+    localStorage.setItem(ORDER_PREFERENCE_KEY, String(value));
+  } catch {
+    // Приложение остаётся рабочим, если хранилище недоступно.
+  }
+};
 
 let activeSection = 'all';
 let currentQuestion = null;
 let showAnswersByDefault = getSavedAnswerPreference();
+let questionsInOrder = getSavedOrderPreference();
 let answerVisible = showAnswersByDefault;
 let seen = new Set();
 let catalogOpen = false;
@@ -42,11 +58,32 @@ const randomQuestion = () => {
   render();
 };
 
+const orderedQuestion = () => {
+  const pool = availableQuestions();
+  const currentIndex = pool.indexOf(currentQuestion);
+
+  if (currentIndex === -1 || currentIndex === pool.length - 1) {
+    if (currentIndex === pool.length - 1) seen = new Set();
+    currentQuestion = pool[0];
+  } else {
+    currentQuestion = pool[currentIndex + 1];
+  }
+
+  seen.add(currentQuestion.question);
+  answerVisible = showAnswersByDefault;
+  render();
+};
+
+const nextQuestion = () => (questionsInOrder ? orderedQuestion() : randomQuestion());
+
 const sectionLabel = (id) => sections.find((item) => item.id === id)?.label;
 const escapeHtml = (value) => value.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
 
 function render() {
-  if (!currentQuestion) currentQuestion = availableQuestions()[Math.floor(Math.random() * availableQuestions().length)];
+  if (!currentQuestion) {
+    const pool = availableQuestions();
+    currentQuestion = questionsInOrder ? pool[0] : pool[Math.floor(Math.random() * pool.length)];
+  }
   const pool = availableQuestions();
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU');
   const catalogQuestions = pool.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
@@ -57,6 +94,7 @@ function render() {
         <a class="brand" href="#" aria-label="На главную"><span class="brand-mark">Q</span><span>AQA<span class="muted">.trainer</span></span></a>
         <div class="header-controls">
           <label class="answer-preference" for="answers-toggle"><span>Показывать ответы</span><input id="answers-toggle" type="checkbox" ${showAnswersByDefault ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
+          <label class="answer-preference" for="order-toggle"><span>По порядку</span><input id="order-toggle" type="checkbox" ${questionsInOrder ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
           <span class="part">Подготовка к интервью · Части 1–3</span>
         </div>
       </header>
@@ -70,7 +108,7 @@ function render() {
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
       </nav>
       <div class="view-switch">
-        <div><span class="view-title">Режим тренировки</span><span class="view-description">${catalogOpen ? 'Выберите вопрос из списка' : 'Случайный вопрос из выбранного раздела'}</span></div>
+        <div><span class="view-title">Режим тренировки</span><span class="view-description">${catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
         <button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button>
       </div>
       <section class="catalog ${catalogOpen ? 'open' : ''}" aria-label="Список вопросов">
@@ -102,7 +140,7 @@ function render() {
     </section>`;
 
   document.querySelectorAll('[data-section]').forEach((button) => {
-    button.addEventListener('click', () => { activeSection = button.dataset.section; seen = new Set(); currentQuestion = null; randomQuestion(); });
+    button.addEventListener('click', () => { activeSection = button.dataset.section; seen = new Set(); currentQuestion = null; nextQuestion(); });
   });
   document.querySelector('#answer-button').addEventListener('click', () => { answerVisible = !answerVisible; render(); });
   document.querySelector('#answers-toggle').addEventListener('change', (event) => {
@@ -111,7 +149,12 @@ function render() {
     answerVisible = showAnswersByDefault;
     render();
   });
-  document.querySelector('#next-button').addEventListener('click', randomQuestion);
+  document.querySelector('#order-toggle').addEventListener('change', (event) => {
+    questionsInOrder = event.target.checked;
+    saveOrderPreference(questionsInOrder);
+    render();
+  });
+  document.querySelector('#next-button').addEventListener('click', nextQuestion);
   document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; render(); });
   document.querySelector('#catalog-search')?.addEventListener('input', (event) => {
     catalogSearch = event.target.value;
