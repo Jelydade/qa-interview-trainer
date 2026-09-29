@@ -1,11 +1,29 @@
 import './style.css';
+import './toggle.css';
 import { questions, sections } from './questions.js';
 import { studyAnswers } from './studyAnswers.js';
 
 const app = document.querySelector('#app');
+const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
+const getSavedAnswerPreference = () => {
+  try {
+    return localStorage.getItem(ANSWER_PREFERENCE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+const saveAnswerPreference = (value) => {
+  try {
+    localStorage.setItem(ANSWER_PREFERENCE_KEY, String(value));
+  } catch {
+    // Приложение остаётся рабочим, если хранилище недоступно.
+  }
+};
+
 let activeSection = 'all';
 let currentQuestion = null;
-let answerVisible = false;
+let showAnswersByDefault = getSavedAnswerPreference();
+let answerVisible = showAnswersByDefault;
 let seen = new Set();
 let catalogOpen = false;
 let catalogSearch = '';
@@ -20,7 +38,7 @@ const randomQuestion = () => {
   const source = unseen.length ? unseen : pool;
   currentQuestion = source[Math.floor(Math.random() * source.length)];
   seen.add(currentQuestion.question);
-  answerVisible = false;
+  answerVisible = showAnswersByDefault;
   render();
 };
 
@@ -37,7 +55,10 @@ function render() {
     <section class="shell">
       <header class="header">
         <a class="brand" href="#" aria-label="На главную"><span class="brand-mark">Q</span><span>AQA<span class="muted">.trainer</span></span></a>
-        <span class="part">Подготовка к интервью · Части 1–3</span>
+        <div class="header-controls">
+          <label class="answer-preference" for="answers-toggle"><span>Показывать ответы</span><input id="answers-toggle" type="checkbox" ${showAnswersByDefault ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
+          <span class="part">Подготовка к интервью · Части 1–3</span>
+        </div>
       </header>
       <div class="intro">
         <p class="eyebrow">AQA Interview Trainer</p>
@@ -84,6 +105,12 @@ function render() {
     button.addEventListener('click', () => { activeSection = button.dataset.section; seen = new Set(); currentQuestion = null; randomQuestion(); });
   });
   document.querySelector('#answer-button').addEventListener('click', () => { answerVisible = !answerVisible; render(); });
+  document.querySelector('#answers-toggle').addEventListener('change', (event) => {
+    showAnswersByDefault = event.target.checked;
+    saveAnswerPreference(showAnswersByDefault);
+    answerVisible = showAnswersByDefault;
+    render();
+  });
   document.querySelector('#next-button').addEventListener('click', randomQuestion);
   document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; render(); });
   document.querySelector('#catalog-search')?.addEventListener('input', (event) => {
@@ -97,7 +124,7 @@ function render() {
     button.addEventListener('click', () => {
       currentQuestion = questions[Number(button.dataset.questionIndex)];
       seen.add(currentQuestion.question);
-      answerVisible = false;
+      answerVisible = showAnswersByDefault;
       catalogOpen = false;
       render();
       document.querySelector('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
