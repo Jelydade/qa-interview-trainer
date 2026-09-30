@@ -1,6 +1,7 @@
 import { programmingQuestions, programmingSections } from './programmingQuestions.js';
 import { infrastructureQuestions, infrastructureSections } from './infrastructureQuestions.js';
 import { advancedQuestions, advancedSections } from './advancedQuestions.js';
+import { middlePlusQuestions, middlePlusSections } from './middlePlusQuestions.js';
 
 export const sections = [
   { id: 'quality', label: 'ПО и качество', color: 'violet' },
@@ -12,6 +13,7 @@ export const sections = [
   ...programmingSections,
   ...infrastructureSections,
   ...advancedSections,
+  ...middlePlusSections,
 ];
 
 export const questions = [
@@ -307,4 +309,5 @@ export const questions = [
   ...programmingQuestions,
   ...infrastructureQuestions,
   ...advancedQuestions,
+  ...middlePlusQuestions,
 ];
