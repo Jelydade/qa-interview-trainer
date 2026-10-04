@@ -87,7 +87,7 @@ let cloudState = 'Локальный режим';
 let cloudSyncInProgress = false;
 let authMessage = readAuthMessage();
 let selectedRating = null;
-let savedRating = null;
+let savedReview = null;
 let catalogOpen = false;
 let catalogSearch = '';
 
@@ -239,8 +239,28 @@ const scheduleReview = (rating) => {
   if (reviewMode && !availableQuestions().length) {
     reviewSession.finished = true;
   }
-  savedRating = rating;
+  savedReview = { label: reviewSchedule[rating].label, intervalDays: nextInterval };
   selectedRating = null;
+  render();
+};
+
+const scheduleFirstReview = () => {
+  reviewProgress = {
+    ...reviewProgress,
+    [currentQuestion.question]: {
+      nextReviewAt: dateAfterDays(1),
+      intervalDays: 1,
+      repetitions: 1,
+      // Для совместимости с ограничением БД используем существующее значение.
+      // Первое изучение распознаётся по repetitions === 1 и не попадает в статистику оценок.
+      lastRating: 'again',
+      reviewedAt: new Date().toISOString(),
+    },
+  };
+  saveReviewProgress();
+  void syncProgress();
+  selectedRating = null;
+  savedReview = { label: 'Первое повторение', intervalDays: 1 };
   render();
 };
 
@@ -252,7 +272,7 @@ const randomQuestion = () => {
   currentQuestion = source[Math.floor(Math.random() * source.length)];
   seen.add(currentQuestion.question);
   selectedRating = null;
-  savedRating = null;
+  savedReview = null;
   answerVisible = showAnswersByDefault;
   render();
 };
@@ -270,7 +290,7 @@ const orderedQuestion = () => {
 
   seen.add(currentQuestion.question);
   selectedRating = null;
-  savedRating = null;
+  savedReview = null;
   answerVisible = showAnswersByDefault;
   render();
 };
@@ -279,7 +299,7 @@ const nextQuestion = () => {
   if (!availableQuestions().length) {
     currentQuestion = null;
     selectedRating = null;
-    savedRating = null;
+    savedReview = null;
     render();
     return;
   }
@@ -297,13 +317,15 @@ function render() {
   }
   const completedInPool = completedCount(baseQuestions());
   const questionProgress = currentQuestion ? reviewProgress[currentQuestion.question] : null;
+  const isFirstStudy = !questionProgress;
+  const isWaitingForFirstReview = questionProgress?.repetitions === 1 && !isDueForReview(currentQuestion);
   const selectedSchedule = selectedRating && (selectedRating === 'good'
     ? ([7, 14, 30, 60, 120].find((days) => days > (questionProgress?.intervalDays ?? 0)) ?? 120)
     : reviewSchedule[selectedRating].days);
   const questionCompleted = questionProgress?.repetitions > 0;
   const todayDueCount = dueCount();
   const ratings = Object.values(reviewProgress);
-  const ratingCounts = { again: ratings.filter((item) => item.lastRating === 'again').length, hard: ratings.filter((item) => item.lastRating === 'hard').length, good: ratings.filter((item) => item.lastRating === 'good').length };
+  const ratingCounts = { again: ratings.filter((item) => item.repetitions > 1 && item.lastRating === 'again').length, hard: ratings.filter((item) => item.repetitions > 1 && item.lastRating === 'hard').length, good: ratings.filter((item) => item.repetitions > 1 && item.lastRating === 'good').length };
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU');
   const catalogQuestions = pool.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
   app.innerHTML = `
@@ -358,7 +380,7 @@ function render() {
         </div>
         <div class="actions">
           <button class="secondary" id="answer-button">${answerVisible ? 'Скрыть ответ' : 'Показать ответ'}</button>
-          ${answerVisible ? `<div class="review-ratings" aria-label="Оценка ответа">${savedRating ? `<div class="rating-saved" role="status"><span>✓</span><div><b>Ответ сохранён</b><small>«${reviewSchedule[savedRating].label}» — вернёмся к вопросу через ${questionProgress.intervalDays} ${questionProgress.intervalDays === 1 ? 'день' : questionProgress.intervalDays < 5 ? 'дня' : 'дней'}.</small></div></div>` : `<div class="review-heading"><span class="review-prompt">Как получилось?</span><small>Выберите вариант, затем подтвердите оценку.</small></div><div class="rating-options" role="radiogroup" aria-label="Насколько уверенно вы ответили"><button class="rating again ${selectedRating === 'again' ? 'selected' : ''}" data-rating="again" role="radio" aria-checked="${selectedRating === 'again'}">Не знаю <small>Повторить через 1 день</small></button><button class="rating hard ${selectedRating === 'hard' ? 'selected' : ''}" data-rating="hard" role="radio" aria-checked="${selectedRating === 'hard'}">Сложно <small>Повторить через 3 дня</small></button><button class="rating good ${selectedRating === 'good' ? 'selected' : ''}" data-rating="good" role="radio" aria-checked="${selectedRating === 'good'}">Знаю <small>Повторить через ${questionProgress?.intervalDays ? `${selectedSchedule} дней` : '7 дней'}</small></button></div><div class="rating-confirm"><span>${selectedRating ? `Выбрано: ${reviewSchedule[selectedRating].label}. Следующее повторение — через ${selectedSchedule} ${selectedSchedule === 1 ? 'день' : selectedSchedule < 5 ? 'дня' : 'дней'}.` : 'Сначала выберите, насколько уверенно вы ответили.'}</span><button class="confirm-rating" id="confirm-rating" type="button" ${selectedRating ? '' : 'disabled'}>Запомнить результат <span>✓</span></button></div>`}</div>` : ''}
+          ${answerVisible ? `<div class="review-ratings" aria-label="План повторения">${savedReview ? `<div class="rating-saved" role="status"><span>✓</span><div><b>${savedReview.label === 'Первое повторение' ? 'Первое повторение запланировано' : 'Ответ сохранён'}</b><small>${savedReview.label === 'Первое повторение' ? 'Вернитесь к этому вопросу завтра: тогда можно будет оценить уверенность.' : `«${savedReview.label}» — вернёмся к вопросу через ${savedReview.intervalDays} ${savedReview.intervalDays === 1 ? 'день' : savedReview.intervalDays < 5 ? 'дня' : 'дней'}.`}</small></div></div>` : isFirstStudy ? `<div class="first-study"><div><span class="review-prompt">Первое знакомство</span><small>Прочитайте ответ, разберите непонятные места — и закрепите материал активным воспроизведением завтра.</small></div><button class="confirm-rating" id="schedule-first-review" type="button">Изучил — повторить завтра <span>→</span></button></div>` : isWaitingForFirstReview ? `<div class="waiting-review"><span>◷</span><div><b>Первое повторение запланировано</b><small>Оценка появится завтра, когда вопрос станет доступен для активного воспроизведения.</small></div></div>` : `<div class="review-heading"><span class="review-prompt">Как получилось?</span><small>Выберите вариант, затем подтвердите оценку.</small></div><div class="rating-options" role="radiogroup" aria-label="Насколько уверенно вы ответили"><button class="rating again ${selectedRating === 'again' ? 'selected' : ''}" data-rating="again" role="radio" aria-checked="${selectedRating === 'again'}">Не знаю <small>Повторить через 1 день</small></button><button class="rating hard ${selectedRating === 'hard' ? 'selected' : ''}" data-rating="hard" role="radio" aria-checked="${selectedRating === 'hard'}">Сложно <small>Повторить через 3 дня</small></button><button class="rating good ${selectedRating === 'good' ? 'selected' : ''}" data-rating="good" role="radio" aria-checked="${selectedRating === 'good'}">Знаю <small>Повторить через ${questionProgress?.intervalDays ? `${selectedSchedule} дней` : '7 дней'}</small></button></div><div class="rating-confirm"><span>${selectedRating ? `Выбрано: ${reviewSchedule[selectedRating].label}. Следующее повторение — через ${selectedSchedule} ${selectedSchedule === 1 ? 'день' : selectedSchedule < 5 ? 'дня' : 'дней'}.` : 'Сначала выберите, насколько уверенно вы ответили.'}</span><button class="confirm-rating" id="confirm-rating" type="button" ${selectedRating ? '' : 'disabled'}>Запомнить результат <span>✓</span></button></div>`}</div>` : ''}
           <button class="primary" id="next-button">Следующий вопрос <span>→</span></button>
         </div>
       </section>` : `<section class="card empty-review" aria-live="polite"><span class="empty-review-icon">✓</span><p class="eyebrow">${reviewMode ? 'ПОВТОРЕНИЯ ЗАВЕРШЕНЫ' : 'НОВЫХ ВОПРОСОВ НЕТ'}</p><h2>${reviewMode ? 'На сегодня всё повторено.' : 'Все вопросы уже были изучены.'}</h2><p>${reviewMode ? `За эту сессию: ${reviewSession.completed} из ${reviewSession.total}. Следующее повторение — ${nextReviewLabel()}.` : 'Можно повторить уже изученный материал или выбрать другой раздел.'}</p><div class="actions"><button class="primary" id="exit-learning-mode">${reviewMode ? 'К обычной тренировке' : 'Перейти к повторениям'} <span>→</span></button></div></section>`}
@@ -421,6 +443,7 @@ function render() {
   document.querySelector('#confirm-rating')?.addEventListener('click', () => {
     if (selectedRating) scheduleReview(selectedRating);
   });
+  document.querySelector('#schedule-first-review')?.addEventListener('click', scheduleFirstReview);
   document.querySelector('#next-button').addEventListener('click', nextQuestion);
   document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; render(); });
   document.querySelector('#catalog-search')?.addEventListener('input', (event) => {
@@ -435,7 +458,7 @@ function render() {
       currentQuestion = questions[Number(button.dataset.questionIndex)];
       seen.add(currentQuestion.question);
       selectedRating = null;
-      savedRating = null;
+      savedReview = null;
       answerVisible = showAnswersByDefault;
       catalogOpen = false;
       render();
