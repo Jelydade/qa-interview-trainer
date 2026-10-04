@@ -19,6 +19,7 @@ import { documentAnswers } from './documentAnswers.js';
 const app = document.querySelector('#app');
 const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
 const ORDER_PREFERENCE_KEY = 'aqa-trainer.questions-in-order';
+const COMPLETED_QUESTIONS_KEY = 'aqa-trainer.completed-questions';
 const getSavedAnswerPreference = () => {
   try {
     return localStorage.getItem(ANSWER_PREFERENCE_KEY) === 'true';
@@ -47,6 +48,21 @@ const saveOrderPreference = (value) => {
     // Приложение остаётся рабочим, если хранилище недоступно.
   }
 };
+const getSavedCompletedQuestions = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COMPLETED_QUESTIONS_KEY) ?? '[]');
+    return new Set(Array.isArray(saved) ? saved : []);
+  } catch {
+    return new Set();
+  }
+};
+const saveCompletedQuestions = () => {
+  try {
+    localStorage.setItem(COMPLETED_QUESTIONS_KEY, JSON.stringify([...completedQuestions]));
+  } catch {
+    // Приложение остаётся рабочим, если хранилище недоступно.
+  }
+};
 
 let activeSection = 'all';
 let currentQuestion = null;
@@ -54,6 +70,7 @@ let showAnswersByDefault = getSavedAnswerPreference();
 let questionsInOrder = getSavedOrderPreference();
 let answerVisible = showAnswersByDefault;
 let seen = new Set();
+let completedQuestions = getSavedCompletedQuestions();
 let catalogOpen = false;
 let catalogSearch = '';
 
@@ -62,6 +79,8 @@ const availableQuestions = () =>
 
 const randomQuestion = () => {
   const pool = availableQuestions();
+  const completedInPool = pool.filter((item) => completedQuestions.has(item.question)).length;
+  const questionCompleted = completedQuestions.has(currentQuestion.question);
   const unseen = pool.filter((item) => !seen.has(item.question));
   if (!unseen.length) seen = new Set();
   const source = unseen.length ? unseen : pool;
@@ -108,6 +127,7 @@ function render() {
         <div class="header-controls">
           <label class="answer-preference" for="answers-toggle"><span>Показывать ответы</span><input id="answers-toggle" type="checkbox" ${showAnswersByDefault ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
           <label class="answer-preference" for="order-toggle"><span>По порядку</span><input id="order-toggle" type="checkbox" ${questionsInOrder ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
+          <button class="reset-progress" id="reset-progress" type="button">Сбросить прогресс</button>
           <span class="part">Подготовка к интервью · Части 1–3</span>
         </div>
       </header>
@@ -130,12 +150,13 @@ function render() {
         <div class="question-list">
           ${catalogQuestions.length ? catalogQuestions.map((item) => {
             const index = questions.indexOf(item);
-            return `<button class="question-item ${item === currentQuestion ? 'selected' : ''}" data-question-index="${index}"><span class="list-number">${String(index + 1).padStart(2, '0')}</span><span class="list-question">${item.question}</span><span class="list-topic ${item.section}">${sectionLabel(item.section)}</span><span class="list-arrow">→</span></button>`;
+            const completed = completedQuestions.has(item.question);
+            return `<button class="question-item ${item === currentQuestion ? 'selected' : ''} ${completed ? 'completed' : ''}" data-question-index="${index}"><span class="list-number">${completed ? '✓' : String(index + 1).padStart(2, '0')}</span><span class="list-question">${item.question}${completed ? '<span class="completed-status">Пройдено</span>' : ''}</span><span class="list-topic ${item.section}">${sectionLabel(item.section)}</span><span class="list-arrow">→</span></button>`;
           }).join('') : '<p class="empty-list">Ничего не найдено. Попробуйте другой запрос.</p>'}
         </div>
       </section>
       <section class="card" aria-live="polite">
-        <div class="card-top"><span class="topic ${currentQuestion.section}">${sectionLabel(currentQuestion.section)}</span><span class="counter">${seen.size} / ${pool.length} просмотрено</span></div>
+        <div class="card-top"><span class="topic ${currentQuestion.section}">${sectionLabel(currentQuestion.section)}</span><span class="counter">${completedInPool} / ${pool.length} пройдено</span></div>
         <p class="question-number">ВОПРОС</p>
         <h2>${currentQuestion.question}</h2>
         <div class="answer ${answerVisible ? 'shown' : ''}">
@@ -147,6 +168,7 @@ function render() {
         </div>
         <div class="actions">
           <button class="secondary" id="answer-button">${answerVisible ? 'Скрыть ответ' : 'Показать ответ'}</button>
+          <label class="completion-control ${questionCompleted ? 'completed' : ''}" for="complete-question"><input id="complete-question" type="checkbox" ${questionCompleted ? 'checked' : ''} /><span class="completion-check" aria-hidden="true">✓</span><span>${questionCompleted ? 'Пройдено' : 'Отметить как пройденное'}</span></label>
           <button class="primary" id="next-button">Следующий вопрос <span>→</span></button>
         </div>
       </section>
@@ -166,6 +188,18 @@ function render() {
   document.querySelector('#order-toggle').addEventListener('change', (event) => {
     questionsInOrder = event.target.checked;
     saveOrderPreference(questionsInOrder);
+    render();
+  });
+  document.querySelector('#complete-question').addEventListener('change', (event) => {
+    if (event.target.checked) completedQuestions.add(currentQuestion.question);
+    else completedQuestions.delete(currentQuestion.question);
+    saveCompletedQuestions();
+    render();
+  });
+  document.querySelector('#reset-progress').addEventListener('click', () => {
+    if (!completedQuestions.size || !window.confirm('Сбросить отметки о прохождении всех вопросов? Это действие нельзя отменить.')) return;
+    completedQuestions = new Set();
+    saveCompletedQuestions();
     render();
   });
   document.querySelector('#next-button').addEventListener('click', nextQuestion);
