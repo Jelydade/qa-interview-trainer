@@ -180,14 +180,9 @@ const initialiseCloudSync = async () => {
   else render();
 };
 const signInWithYandex = async () => {
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'custom:yandex',
-    options: { redirectTo: `${window.location.origin}${window.location.pathname}` },
-  });
-  if (error) {
-    cloudState = 'Не удалось начать вход';
-    render();
-  }
+  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const authUrl = 'https://sqgbegzlzegrmmaewtrk.supabase.co/functions/v1/yandex-auth/start';
+  window.location.assign(`${authUrl}?redirect_to=${encodeURIComponent(redirectTo)}`);
 };
 const signOut = async () => {
   await supabase.auth.signOut();
