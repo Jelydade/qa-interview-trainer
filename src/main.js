@@ -22,6 +22,7 @@ const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
 const ORDER_PREFERENCE_KEY = 'aqa-trainer.questions-in-order';
 const COMPLETED_QUESTIONS_KEY = 'aqa-trainer.completed-questions';
 const REVIEW_PROGRESS_KEY = 'aqa-trainer.review-progress-v1';
+const ONBOARDING_DISMISSED_KEY = 'aqa-trainer.onboarding-dismissed';
 const getSavedAnswerPreference = () => {
   try {
     return localStorage.getItem(ANSWER_PREFERENCE_KEY) === 'true';
@@ -65,6 +66,13 @@ const saveReviewProgress = () => {
     // Приложение остаётся рабочим, если хранилище недоступно.
   }
 };
+const getOnboardingDismissed = () => {
+  try {
+    return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
 const readAuthMessage = () => {
   const params = new URLSearchParams(window.location.search);
   if (!params.get('error')) return '';
@@ -90,6 +98,7 @@ let selectedRating = null;
 let savedReview = null;
 let catalogOpen = false;
 let catalogSearch = '';
+let onboardingDismissed = getOnboardingDismissed();
 
 const accountName = () => session?.user?.user_metadata?.name || 'Мой прогресс';
 const accountInitial = () => accountName().trim().slice(0, 1).toLocaleUpperCase('ru-RU') || 'Я';
@@ -368,6 +377,7 @@ function render() {
         <h1>Отвечайте уверенно,<br><em>а не наизусть.</em></h1>
         <p class="lead">Теория тестирования и основы программирования: случайные вопросы, понятные ответы и акценты для интервью.</p>
       </div>
+      ${!onboardingDismissed && !Object.keys(reviewProgress).length ? `<section class="onboarding" aria-label="Как работает тренажёр"><div class="onboarding-heading"><div><span>Как запоминать надолго</span><small>Короткий цикл интервального повторения — без лишних действий.</small></div><button id="dismiss-onboarding" type="button" aria-label="Скрыть подсказку">×</button></div><div class="onboarding-steps"><div><b>1</b><p><strong>Изучите</strong><span>Прочитайте ответ и отметьте: «Изучил — повторить завтра».</span></p></div><div><b>2</b><p><strong>Вспомните</strong><span>На следующий день сначала ответьте сами, без подсказки.</span></p></div><div><b>3</b><p><strong>Оцените</strong><span>Выберите уверенность — тренажёр назначит следующий интервал.</span></p></div></div></section>` : ''}
       <nav class="filters" aria-label="Разделы вопросов">
         <button class="filter ${activeSection === 'all' ? 'active' : ''}" data-section="all">Все вопросы <span>${questions.length}</span></button>
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
@@ -432,6 +442,11 @@ function render() {
   document.querySelector('#sign-in')?.addEventListener('click', signInWithYandex);
   document.querySelector('#sign-out')?.addEventListener('click', signOut);
   document.querySelector('#retry-sync')?.addEventListener('click', () => void syncProgress());
+  document.querySelector('#dismiss-onboarding')?.addEventListener('click', () => {
+    onboardingDismissed = true;
+    try { localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true'); } catch { /* Подсказка скроется хотя бы до перезагрузки. */ }
+    render();
+  });
   document.querySelector('#review-toggle').addEventListener('click', () => {
     const count = dueCount();
     reviewMode = newQuestionsMode ? true : !reviewMode;
