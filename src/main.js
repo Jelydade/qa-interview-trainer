@@ -73,6 +73,8 @@ let answerVisible = showAnswersByDefault;
 let seen = new Set();
 let reviewProgress = getSavedReviewProgress();
 let reviewMode = false;
+let newQuestionsMode = false;
+let reviewSession = { total: 0, completed: 0, finished: false };
 let catalogOpen = false;
 let catalogSearch = '';
 
@@ -87,9 +89,20 @@ const dateAfterDays = (days) => {
 };
 const baseQuestions = () => activeSection === 'all' ? questions : questions.filter((item) => item.section === activeSection);
 const isDueForReview = (question) => reviewProgress[question.question]?.nextReviewAt <= localDate();
-const availableQuestions = () => reviewMode ? baseQuestions().filter(isDueForReview) : baseQuestions();
+const availableQuestions = () => {
+  const pool = baseQuestions();
+  if (reviewMode) return pool.filter(isDueForReview);
+  if (newQuestionsMode) return pool.filter((item) => !reviewProgress[item.question]?.repetitions);
+  return pool;
+};
 const completedCount = (pool) => pool.filter((item) => reviewProgress[item.question]?.repetitions > 0).length;
 const dueCount = () => questions.filter(isDueForReview).length;
+const nextReviewLabel = () => {
+  const dates = Object.values(reviewProgress).map((item) => item.nextReviewAt).filter(Boolean).sort();
+  if (!dates.length) return 'появится после первой оценки';
+  if (dates[0] <= localDate()) return 'сегодня';
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(`${dates[0]}T12:00:00`));
+};
 const reviewSchedule = {
   again: { label: 'Не знаю', days: 1 },
   hard: { label: 'Сложно', days: 3 },
@@ -111,9 +124,12 @@ const scheduleReview = (rating) => {
     },
   };
   saveReviewProgress();
+  if (reviewMode) reviewSession.completed += 1;
   if (reviewMode && !availableQuestions().length) {
-    reviewMode = false;
+    reviewSession.finished = true;
     currentQuestion = null;
+    render();
+    return;
   }
   nextQuestion();
 };
@@ -151,15 +167,17 @@ const sectionLabel = (id) => sections.find((item) => item.id === id)?.label;
 const escapeHtml = (value) => value.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
 
 function render() {
-  if (!currentQuestion) {
-    const pool = availableQuestions();
+  const pool = availableQuestions();
+  const hasQuestions = pool.length > 0;
+  if (!currentQuestion && hasQuestions) {
     currentQuestion = questionsInOrder ? pool[0] : pool[Math.floor(Math.random() * pool.length)];
   }
-  const pool = availableQuestions();
   const completedInPool = completedCount(baseQuestions());
-  const questionProgress = reviewProgress[currentQuestion.question];
+  const questionProgress = currentQuestion ? reviewProgress[currentQuestion.question] : null;
   const questionCompleted = questionProgress?.repetitions > 0;
   const todayDueCount = dueCount();
+  const ratings = Object.values(reviewProgress);
+  const ratingCounts = { again: ratings.filter((item) => item.lastRating === 'again').length, hard: ratings.filter((item) => item.lastRating === 'hard').length, good: ratings.filter((item) => item.lastRating === 'good').length };
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU');
   const catalogQuestions = pool.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
   app.innerHTML = `
@@ -183,9 +201,10 @@ function render() {
         <button class="filter ${activeSection === 'all' ? 'active' : ''}" data-section="all">Все вопросы <span>${questions.length}</span></button>
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
       </nav>
+      <section class="study-dashboard" aria-label="Прогресс обучения"><div><span>Изучено</span><b>${completedCount(questions)} <small>/ ${questions.length}</small></b></div><div><span>Повторить сегодня</span><b>${todayDueCount}</b></div><div><span>Ближайшее повторение</span><b class="date-stat">${nextReviewLabel()}</b></div><div><span>Оценки</span><b class="rating-stat"><i>${ratingCounts.again}</i><em>${ratingCounts.hard}</em><strong>${ratingCounts.good}</strong></b></div></section>
       <div class="view-switch">
-        <div><span class="view-title">${reviewMode ? 'Интервальное повторение' : 'Режим тренировки'}</span><span class="view-description">${reviewMode ? 'Вопросы, которые пора повторить сегодня' : catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
-        <div class="view-actions"><button class="review-toggle ${reviewMode ? 'active' : ''}" id="review-toggle" type="button">↻ Повторить сегодня <span>${todayDueCount}</span></button><button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button></div>
+        <div><span class="view-title">${reviewMode ? 'Интервальное повторение' : newQuestionsMode ? 'Новые вопросы' : 'Режим тренировки'}</span><span class="view-description">${reviewMode ? `Повторено в этой сессии: ${reviewSession.completed} из ${reviewSession.total}` : newQuestionsMode ? 'Вопросы, которые ещё не получили оценку' : catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
+        <div class="view-actions"><button class="new-toggle ${newQuestionsMode ? 'active' : ''}" id="new-toggle" type="button">✦ Новые <span>${questions.filter((item) => !reviewProgress[item.question]?.repetitions).length}</span></button><button class="review-toggle ${reviewMode ? 'active' : ''}" id="review-toggle" type="button">↻ Повторить сегодня <span>${todayDueCount}</span></button><button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button></div>
       </div>
       <section class="catalog ${catalogOpen ? 'open' : ''}" aria-label="Список вопросов">
         <div class="catalog-header"><div><p class="catalog-eyebrow">КАТАЛОГ</p><h2>Все вопросы <span>${pool.length}</span></h2></div><label class="search"><span>⌕</span><input id="catalog-search" type="search" value="${escapeHtml(catalogSearch)}" placeholder="Найти вопрос" aria-label="Поиск вопроса" /></label></div>
@@ -198,7 +217,7 @@ function render() {
           }).join('') : '<p class="empty-list">Ничего не найдено. Попробуйте другой запрос.</p>'}
         </div>
       </section>
-      <section class="card" aria-live="polite">
+      ${hasQuestions ? `<section class="card" aria-live="polite">
         <div class="card-top"><span class="topic ${currentQuestion.section}">${sectionLabel(currentQuestion.section)}</span><span class="counter">${completedInPool} / ${baseQuestions().length} изучено</span></div>
         <p class="question-number">ВОПРОС</p>
         <h2>${currentQuestion.question}</h2>
@@ -214,14 +233,14 @@ function render() {
           ${answerVisible ? `<div class="review-ratings" aria-label="Оцените, насколько уверенно вы ответили"><span class="review-prompt">Как получилось?</span><button class="rating again" data-rating="again">Не знаю <small>1 день</small></button><button class="rating hard" data-rating="hard">Сложно <small>3 дня</small></button><button class="rating good" data-rating="good">Знаю <small>${questionProgress?.intervalDays ? `→ ${([7, 14, 30, 60, 120].find((days) => days > questionProgress.intervalDays) ?? 120)} дней` : '7 дней'}</small></button></div>` : ''}
           <button class="primary" id="next-button">Следующий вопрос <span>→</span></button>
         </div>
-      </section>
+      </section>` : `<section class="card empty-review" aria-live="polite"><span class="empty-review-icon">✓</span><p class="eyebrow">${reviewMode ? 'ПОВТОРЕНИЯ ЗАВЕРШЕНЫ' : 'НОВЫХ ВОПРОСОВ НЕТ'}</p><h2>${reviewMode ? 'На сегодня всё повторено.' : 'Все вопросы уже были изучены.'}</h2><p>${reviewMode ? `За эту сессию: ${reviewSession.completed} из ${reviewSession.total}. Следующее повторение — ${nextReviewLabel()}.` : 'Можно повторить уже изученный материал или выбрать другой раздел.'}</p><div class="actions"><button class="primary" id="exit-learning-mode">${reviewMode ? 'К обычной тренировке' : 'Перейти к повторениям'} <span>→</span></button></div></section>`}
       <p class="footer-note">Сначала сформулируйте ответ сами — затем сравните его с подсказкой.</p>
     </section>`;
 
   document.querySelectorAll('[data-section]').forEach((button) => {
-    button.addEventListener('click', () => { activeSection = button.dataset.section; reviewMode = false; seen = new Set(); currentQuestion = null; nextQuestion(); });
+    button.addEventListener('click', () => { activeSection = button.dataset.section; reviewMode = false; newQuestionsMode = false; reviewSession.finished = false; seen = new Set(); currentQuestion = null; nextQuestion(); });
   });
-  document.querySelector('#answer-button').addEventListener('click', () => { answerVisible = !answerVisible; render(); });
+  document.querySelector('#answer-button')?.addEventListener('click', () => { answerVisible = !answerVisible; render(); });
   document.querySelector('#answers-toggle').addEventListener('change', (event) => {
     showAnswersByDefault = event.target.checked;
     saveAnswerPreference(showAnswersByDefault);
@@ -242,13 +261,27 @@ function render() {
   });
   document.querySelector('#review-toggle').addEventListener('click', () => {
     const count = dueCount();
-    if (!count) {
-      window.alert('На сегодня повторений нет. Вернитесь завтра или продолжайте изучать новые вопросы.');
-      return;
-    }
-    reviewMode = !reviewMode;
+    reviewMode = newQuestionsMode ? true : !reviewMode;
+    newQuestionsMode = false;
     catalogOpen = false;
     seen = new Set();
+    currentQuestion = null;
+    reviewSession = { total: count, completed: 0, finished: false };
+    if (count) nextQuestion(); else render();
+  });
+  document.querySelector('#new-toggle').addEventListener('click', () => {
+    newQuestionsMode = reviewMode ? true : !newQuestionsMode;
+    reviewMode = false;
+    reviewSession.finished = false;
+    catalogOpen = false;
+    seen = new Set();
+    currentQuestion = null;
+    if (availableQuestions().length) nextQuestion(); else render();
+  });
+  document.querySelector('#exit-learning-mode')?.addEventListener('click', () => {
+    reviewMode = false;
+    newQuestionsMode = false;
+    reviewSession.finished = false;
     currentQuestion = null;
     nextQuestion();
   });
