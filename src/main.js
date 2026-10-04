@@ -86,6 +86,8 @@ let session = null;
 let cloudState = 'Локальный режим';
 let cloudSyncInProgress = false;
 let authMessage = readAuthMessage();
+let selectedRating = null;
+let savedRating = null;
 let catalogOpen = false;
 let catalogSearch = '';
 
@@ -236,11 +238,10 @@ const scheduleReview = (rating) => {
   if (reviewMode) reviewSession.completed += 1;
   if (reviewMode && !availableQuestions().length) {
     reviewSession.finished = true;
-    currentQuestion = null;
-    render();
-    return;
   }
-  nextQuestion();
+  savedRating = rating;
+  selectedRating = null;
+  render();
 };
 
 const randomQuestion = () => {
@@ -250,6 +251,8 @@ const randomQuestion = () => {
   const source = unseen.length ? unseen : pool;
   currentQuestion = source[Math.floor(Math.random() * source.length)];
   seen.add(currentQuestion.question);
+  selectedRating = null;
+  savedRating = null;
   answerVisible = showAnswersByDefault;
   render();
 };
@@ -266,11 +269,22 @@ const orderedQuestion = () => {
   }
 
   seen.add(currentQuestion.question);
+  selectedRating = null;
+  savedRating = null;
   answerVisible = showAnswersByDefault;
   render();
 };
 
-const nextQuestion = () => (questionsInOrder ? orderedQuestion() : randomQuestion());
+const nextQuestion = () => {
+  if (!availableQuestions().length) {
+    currentQuestion = null;
+    selectedRating = null;
+    savedRating = null;
+    render();
+    return;
+  }
+  questionsInOrder ? orderedQuestion() : randomQuestion();
+};
 
 const sectionLabel = (id) => sections.find((item) => item.id === id)?.label;
 const escapeHtml = (value) => value.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]);
@@ -283,6 +297,9 @@ function render() {
   }
   const completedInPool = completedCount(baseQuestions());
   const questionProgress = currentQuestion ? reviewProgress[currentQuestion.question] : null;
+  const selectedSchedule = selectedRating && (selectedRating === 'good'
+    ? ([7, 14, 30, 60, 120].find((days) => days > (questionProgress?.intervalDays ?? 0)) ?? 120)
+    : reviewSchedule[selectedRating].days);
   const questionCompleted = questionProgress?.repetitions > 0;
   const todayDueCount = dueCount();
   const ratings = Object.values(reviewProgress);
@@ -341,7 +358,7 @@ function render() {
         </div>
         <div class="actions">
           <button class="secondary" id="answer-button">${answerVisible ? 'Скрыть ответ' : 'Показать ответ'}</button>
-          ${answerVisible ? `<div class="review-ratings" aria-label="Оцените, насколько уверенно вы ответили"><span class="review-prompt">Как получилось?</span><button class="rating again" data-rating="again">Не знаю <small>1 день</small></button><button class="rating hard" data-rating="hard">Сложно <small>3 дня</small></button><button class="rating good" data-rating="good">Знаю <small>${questionProgress?.intervalDays ? `→ ${([7, 14, 30, 60, 120].find((days) => days > questionProgress.intervalDays) ?? 120)} дней` : '7 дней'}</small></button></div>` : ''}
+          ${answerVisible ? `<div class="review-ratings" aria-label="Оценка ответа">${savedRating ? `<div class="rating-saved" role="status"><span>✓</span><div><b>Ответ сохранён</b><small>«${reviewSchedule[savedRating].label}» — вернёмся к вопросу через ${questionProgress.intervalDays} ${questionProgress.intervalDays === 1 ? 'день' : questionProgress.intervalDays < 5 ? 'дня' : 'дней'}.</small></div></div>` : `<div class="review-heading"><span class="review-prompt">Как получилось?</span><small>Выберите вариант, затем подтвердите оценку.</small></div><div class="rating-options" role="radiogroup" aria-label="Насколько уверенно вы ответили"><button class="rating again ${selectedRating === 'again' ? 'selected' : ''}" data-rating="again" role="radio" aria-checked="${selectedRating === 'again'}">Не знаю <small>Повторить через 1 день</small></button><button class="rating hard ${selectedRating === 'hard' ? 'selected' : ''}" data-rating="hard" role="radio" aria-checked="${selectedRating === 'hard'}">Сложно <small>Повторить через 3 дня</small></button><button class="rating good ${selectedRating === 'good' ? 'selected' : ''}" data-rating="good" role="radio" aria-checked="${selectedRating === 'good'}">Знаю <small>Повторить через ${questionProgress?.intervalDays ? `${selectedSchedule} дней` : '7 дней'}</small></button></div><div class="rating-confirm"><span>${selectedRating ? `Выбрано: ${reviewSchedule[selectedRating].label}. Следующее повторение — через ${selectedSchedule} ${selectedSchedule === 1 ? 'день' : selectedSchedule < 5 ? 'дня' : 'дней'}.` : 'Сначала выберите, насколько уверенно вы ответили.'}</span><button class="confirm-rating" id="confirm-rating" type="button" ${selectedRating ? '' : 'disabled'}>Запомнить результат <span>✓</span></button></div>`}</div>` : ''}
           <button class="primary" id="next-button">Следующий вопрос <span>→</span></button>
         </div>
       </section>` : `<section class="card empty-review" aria-live="polite"><span class="empty-review-icon">✓</span><p class="eyebrow">${reviewMode ? 'ПОВТОРЕНИЯ ЗАВЕРШЕНЫ' : 'НОВЫХ ВОПРОСОВ НЕТ'}</p><h2>${reviewMode ? 'На сегодня всё повторено.' : 'Все вопросы уже были изучены.'}</h2><p>${reviewMode ? `За эту сессию: ${reviewSession.completed} из ${reviewSession.total}. Следующее повторение — ${nextReviewLabel()}.` : 'Можно повторить уже изученный материал или выбрать другой раздел.'}</p><div class="actions"><button class="primary" id="exit-learning-mode">${reviewMode ? 'К обычной тренировке' : 'Перейти к повторениям'} <span>→</span></button></div></section>`}
@@ -396,7 +413,13 @@ function render() {
     nextQuestion();
   });
   document.querySelectorAll('[data-rating]').forEach((button) => {
-    button.addEventListener('click', () => scheduleReview(button.dataset.rating));
+    button.addEventListener('click', () => {
+      selectedRating = button.dataset.rating;
+      render();
+    });
+  });
+  document.querySelector('#confirm-rating')?.addEventListener('click', () => {
+    if (selectedRating) scheduleReview(selectedRating);
   });
   document.querySelector('#next-button').addEventListener('click', nextQuestion);
   document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; render(); });
@@ -411,6 +434,8 @@ function render() {
     button.addEventListener('click', () => {
       currentQuestion = questions[Number(button.dataset.questionIndex)];
       seen.add(currentQuestion.question);
+      selectedRating = null;
+      savedRating = null;
       answerVisible = showAnswersByDefault;
       catalogOpen = false;
       render();
