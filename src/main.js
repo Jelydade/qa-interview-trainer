@@ -79,8 +79,6 @@ const availableQuestions = () =>
 
 const randomQuestion = () => {
   const pool = availableQuestions();
-  const completedInPool = pool.filter((item) => completedQuestions.has(item.question)).length;
-  const questionCompleted = completedQuestions.has(currentQuestion.question);
   const unseen = pool.filter((item) => !seen.has(item.question));
   if (!unseen.length) seen = new Set();
   const source = unseen.length ? unseen : pool;
@@ -117,6 +115,8 @@ function render() {
     currentQuestion = questionsInOrder ? pool[0] : pool[Math.floor(Math.random() * pool.length)];
   }
   const pool = availableQuestions();
+  const completedInPool = pool.filter((item) => completedQuestions.has(item.question)).length;
+  const questionCompleted = completedQuestions.has(currentQuestion.question);
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU');
   const catalogQuestions = pool.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
   app.innerHTML = `
