@@ -15,6 +15,7 @@ import { studyAdditionsInfrastructure } from './studyAdditionsInfrastructure.js'
 import { studyAdditionsAutomation } from './studyAdditionsAutomation.js';
 import { studyAdditionsFinal } from './studyAdditionsFinal.js';
 import { documentAnswers } from './documentAnswers.js';
+import { supabase } from './supabaseClient.js';
 
 const app = document.querySelector('#app');
 const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
@@ -75,6 +76,9 @@ let reviewProgress = getSavedReviewProgress();
 let reviewMode = false;
 let newQuestionsMode = false;
 let reviewSession = { total: 0, completed: 0, finished: false };
+let session = null;
+let cloudState = 'Локальный режим';
+let cloudSyncInProgress = false;
 let catalogOpen = false;
 let catalogSearch = '';
 
@@ -108,6 +112,105 @@ const reviewSchedule = {
   hard: { label: 'Сложно', days: 3 },
   good: { label: 'Знаю', days: null },
 };
+const toCloudRows = () => Object.entries(reviewProgress).map(([questionKey, item]) => ({
+  user_id: session.user.id,
+  question_key: questionKey,
+  next_review_at: item.nextReviewAt,
+  interval_days: item.intervalDays,
+  repetitions: item.repetitions,
+  last_rating: item.lastRating,
+  reviewed_at: item.reviewedAt,
+  updated_at: new Date().toISOString(),
+}));
+const mergeCloudRows = (rows) => {
+  rows.forEach((row) => {
+    const local = reviewProgress[row.question_key];
+    const remote = {
+      nextReviewAt: row.next_review_at,
+      intervalDays: row.interval_days,
+      repetitions: row.repetitions,
+      lastRating: row.last_rating,
+      reviewedAt: row.reviewed_at,
+    };
+    if (!local || new Date(remote.reviewedAt) > new Date(local.reviewedAt)) {
+      reviewProgress = { ...reviewProgress, [row.question_key]: remote };
+    }
+  });
+  saveReviewProgress();
+};
+const syncProgress = async () => {
+  if (!session || cloudSyncInProgress) return;
+  cloudSyncInProgress = true;
+  cloudState = 'Синхронизация…';
+  render();
+  try {
+    const { data: remoteRows, error: readError } = await supabase
+      .from('learning_progress')
+      .select('*')
+      .eq('user_id', session.user.id);
+    if (readError) {
+      cloudState = 'Ошибка синхронизации';
+      render();
+      return;
+    }
+    mergeCloudRows(remoteRows ?? []);
+    const rows = toCloudRows();
+    if (rows.length) {
+      const { error: writeError } = await supabase
+        .from('learning_progress')
+        .upsert(rows, { onConflict: 'user_id,question_key' });
+      if (writeError) {
+        cloudState = 'Ошибка синхронизации';
+        render();
+        return;
+      }
+    }
+    cloudState = 'Синхронизировано';
+  } catch {
+    cloudState = 'Ошибка синхронизации';
+  } finally {
+    cloudSyncInProgress = false;
+    render();
+  }
+};
+const initialiseCloudSync = async () => {
+  const { data } = await supabase.auth.getSession();
+  session = data.session;
+  if (session) await syncProgress();
+  else render();
+};
+const signInWithYandex = async () => {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'custom:yandex',
+    options: { redirectTo: `${window.location.origin}${window.location.pathname}` },
+  });
+  if (error) {
+    cloudState = 'Не удалось начать вход';
+    render();
+  }
+};
+const signOut = async () => {
+  await supabase.auth.signOut();
+  session = null;
+  cloudState = 'Локальный режим';
+  render();
+};
+const resetProgress = async () => {
+  reviewProgress = {};
+  try { localStorage.removeItem(COMPLETED_QUESTIONS_KEY); } catch { /* Старые отметки можно безопасно игнорировать. */ }
+  saveReviewProgress();
+
+  if (session) {
+    cloudState = 'Синхронизация…';
+    render();
+    const { error } = await supabase
+      .from('learning_progress')
+      .delete()
+      .eq('user_id', session.user.id);
+    cloudState = error ? 'Ошибка синхронизации' : 'Синхронизировано';
+  }
+  render();
+};
 const scheduleReview = (rating) => {
   const previous = reviewProgress[currentQuestion.question] ?? { intervalDays: 0, repetitions: 0 };
   const nextInterval = rating === 'good'
@@ -124,6 +227,7 @@ const scheduleReview = (rating) => {
     },
   };
   saveReviewProgress();
+  void syncProgress();
   if (reviewMode) reviewSession.completed += 1;
   if (reviewMode && !availableQuestions().length) {
     reviewSession.finished = true;
@@ -188,6 +292,7 @@ function render() {
         <div class="header-controls">
           <label class="answer-preference" for="answers-toggle"><span>Показывать ответы</span><input id="answers-toggle" type="checkbox" ${showAnswersByDefault ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
           <label class="answer-preference" for="order-toggle"><span>По порядку</span><input id="order-toggle" type="checkbox" ${questionsInOrder ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
+          ${session ? `<span class="sync-state" title="${cloudState}">☁ ${cloudState}</span><button class="account-button" id="sign-out" type="button">Выйти</button>` : '<button class="account-button" id="sign-in" type="button">Войти и синхронизировать</button>'}
           <button class="reset-progress" id="reset-progress" type="button">Сбросить прогресс</button>
           <span class="part">Подготовка к интервью · Части 1–3</span>
         </div>
@@ -254,11 +359,10 @@ function render() {
   });
   document.querySelector('#reset-progress').addEventListener('click', () => {
     if (!Object.keys(reviewProgress).length || !window.confirm('Сбросить историю изучения и расписание повторений для всех вопросов? Это действие нельзя отменить.')) return;
-    reviewProgress = {};
-    try { localStorage.removeItem(COMPLETED_QUESTIONS_KEY); } catch { /* Старые отметки можно безопасно игнорировать. */ }
-    saveReviewProgress();
-    render();
+    void resetProgress();
   });
+  document.querySelector('#sign-in')?.addEventListener('click', signInWithYandex);
+  document.querySelector('#sign-out')?.addEventListener('click', signOut);
   document.querySelector('#review-toggle').addEventListener('click', () => {
     const count = dueCount();
     reviewMode = newQuestionsMode ? true : !reviewMode;
@@ -310,3 +414,12 @@ function render() {
 }
 
 render();
+void initialiseCloudSync();
+supabase.auth.onAuthStateChange((_event, nextSession) => {
+  session = nextSession;
+  if (session) void syncProgress();
+  else {
+    cloudState = 'Локальный режим';
+    render();
+  }
+});
