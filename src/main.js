@@ -65,6 +65,12 @@ const saveReviewProgress = () => {
     // Приложение остаётся рабочим, если хранилище недоступно.
   }
 };
+const readAuthMessage = () => {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get('error')) return '';
+  window.history.replaceState({}, document.title, window.location.pathname);
+  return 'Не удалось завершить вход. Попробуйте ещё раз; если ошибка повторится, сообщите нам.';
+};
 
 let activeSection = 'all';
 let currentQuestion = null;
@@ -79,6 +85,7 @@ let reviewSession = { total: 0, completed: 0, finished: false };
 let session = null;
 let cloudState = 'Локальный режим';
 let cloudSyncInProgress = false;
+let authMessage = readAuthMessage();
 let catalogOpen = false;
 let catalogSearch = '';
 
@@ -180,6 +187,9 @@ const initialiseCloudSync = async () => {
   else render();
 };
 const signInWithYandex = async () => {
+  authMessage = '';
+  cloudState = 'Открываем Яндекс ID…';
+  render();
   const redirectTo = `${window.location.origin}${window.location.pathname}`;
   const authUrl = 'https://sqgbegzlzegrmmaewtrk.supabase.co/functions/v1/yandex-auth/start';
   window.location.assign(`${authUrl}?redirect_to=${encodeURIComponent(redirectTo)}`);
@@ -287,11 +297,12 @@ function render() {
         <div class="header-controls">
           <label class="answer-preference" for="answers-toggle"><span>Показывать ответы</span><input id="answers-toggle" type="checkbox" ${showAnswersByDefault ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
           <label class="answer-preference" for="order-toggle"><span>По порядку</span><input id="order-toggle" type="checkbox" ${questionsInOrder ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
-          ${session ? `<span class="sync-state" title="${cloudState}">☁ ${cloudState}</span><button class="account-button" id="sign-out" type="button">Выйти</button>` : '<button class="account-button" id="sign-in" type="button">Войти и синхронизировать</button>'}
+          ${session ? `<span class="sync-state" title="${cloudState}">☁ ${cloudState}</span><button class="account-button" id="sign-out" type="button">Выйти</button>` : `<button class="account-button" id="sign-in" type="button" ${cloudState === 'Открываем Яндекс ID…' ? 'disabled' : ''}>Войти через Яндекс ID</button>`}
           <button class="reset-progress" id="reset-progress" type="button">Сбросить прогресс</button>
           <span class="part">Подготовка к интервью · Части 1–3</span>
         </div>
       </header>
+      ${authMessage ? `<p class="auth-message" role="status">${authMessage}</p>` : ''}
       <div class="intro">
         <p class="eyebrow">AQA Interview Trainer</p>
         <h1>Отвечайте уверенно,<br><em>а не наизусть.</em></h1>
