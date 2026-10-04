@@ -123,12 +123,13 @@ const reviewPlan = () => Array.from({ length: 7 }, (_, index) => {
   const date = new Date();
   date.setDate(date.getDate() + index);
   const dateKey = localDate(date);
-  const count = Object.values(reviewProgress).filter((item) => index === 0
-    ? item.nextReviewAt <= dateKey
-    : item.nextReviewAt === dateKey).length;
+  const questionKeys = Object.entries(reviewProgress)
+    .filter(([, item]) => index === 0 ? item.nextReviewAt <= dateKey : item.nextReviewAt === dateKey)
+    .map(([question]) => question);
+  const count = questionKeys.length;
   const label = index === 0 ? 'Сегодня' : index === 1 ? 'Завтра' : new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(date);
   const day = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(date);
-  return { label, day, count, isToday: index === 0 };
+  return { label, day, count, questionKeys, isToday: index === 0 };
 });
 const reviewSchedule = {
   again: { label: 'Не знаю', days: 1 },
@@ -371,7 +372,7 @@ function render() {
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
       </nav>
       <section class="study-dashboard" aria-label="Прогресс обучения"><div><span>Изучено</span><b>${completedCount(questions)} <small>/ ${questions.length}</small></b></div><div><span>Повторить сегодня</span><b>${todayDueCount}</b></div><div><span>Ближайшее повторение</span><b class="date-stat">${nextReviewLabel()}</b></div><div><span>Оценки</span><b class="rating-stat"><i>${ratingCounts.again}</i><em>${ratingCounts.hard}</em><strong>${ratingCounts.good}</strong></b></div></section>
-      <section class="review-plan" aria-label="План интервальных повторений"><div class="review-plan-heading"><div><span>План повторений</span><small>Расписание обновляется после каждой оценки.</small></div><span class="review-plan-note">${todayDueCount ? `Сегодня: ${todayDueCount}` : 'На сегодня свободно'}</span></div><div class="review-calendar">${reviewPlan().map((item) => `<div class="review-day ${item.isToday ? 'today' : ''} ${item.count ? 'has-reviews' : ''}"><span>${item.label}</span><small>${item.day}</small><b>${item.count || '—'}</b><em>${item.count ? (item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов') : 'нет'}</em></div>`).join('')}</div></section>
+      <section class="review-plan" aria-label="План интервальных повторений"><div class="review-plan-heading"><div><span>План повторений</span><small>Наведите на день с вопросами, чтобы увидеть список.</small></div><span class="review-plan-note">${todayDueCount ? `Сегодня: ${todayDueCount}` : 'На сегодня свободно'}</span></div><div class="review-calendar">${reviewPlan().map((item) => `<div class="review-day ${item.isToday ? 'today' : ''} ${item.count ? 'has-reviews' : ''}" ${item.count ? 'tabindex="0"' : ''}><span>${item.label}</span><small>${item.day}</small><b>${item.count || '—'}</b><em>${item.count ? (item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов') : 'нет'}</em>${item.count ? `<div class="review-tooltip" role="tooltip"><b>${item.label}: ${item.count} ${item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов'}</b><ul>${item.questionKeys.map((question) => `<li>${escapeHtml(question)}</li>`).join('')}</ul></div>` : ''}</div>`).join('')}</div></section>
       <div class="view-switch">
         <div><span class="view-title">${reviewMode ? 'Интервальное повторение' : newQuestionsMode ? 'Новые вопросы' : 'Режим тренировки'}</span><span class="view-description">${reviewMode ? `Повторено в этой сессии: ${reviewSession.completed} из ${reviewSession.total}` : newQuestionsMode ? 'Вопросы, которые ещё не получили оценку' : catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
         <div class="view-actions"><button class="new-toggle ${newQuestionsMode ? 'active' : ''}" id="new-toggle" type="button">✦ Новые <span>${questions.filter((item) => !reviewProgress[item.question]?.repetitions).length}</span></button><button class="review-toggle ${reviewMode ? 'active' : ''}" id="review-toggle" type="button">↻ Повторить сегодня <span>${todayDueCount}</span></button><button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button></div>
