@@ -91,6 +91,9 @@ let savedReview = null;
 let catalogOpen = false;
 let catalogSearch = '';
 
+const accountName = () => session?.user?.user_metadata?.name || 'Мой прогресс';
+const accountInitial = () => accountName().trim().slice(0, 1).toLocaleUpperCase('ru-RU') || 'Я';
+
 const localDate = (date = new Date()) => {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return offsetDate.toISOString().slice(0, 10);
@@ -116,6 +119,17 @@ const nextReviewLabel = () => {
   if (dates[0] <= localDate()) return 'сегодня';
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(`${dates[0]}T12:00:00`));
 };
+const reviewPlan = () => Array.from({ length: 7 }, (_, index) => {
+  const date = new Date();
+  date.setDate(date.getDate() + index);
+  const dateKey = localDate(date);
+  const count = Object.values(reviewProgress).filter((item) => index === 0
+    ? item.nextReviewAt <= dateKey
+    : item.nextReviewAt === dateKey).length;
+  const label = index === 0 ? 'Сегодня' : index === 1 ? 'Завтра' : new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(date);
+  const day = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(date);
+  return { label, day, count, isToday: index === 0 };
+});
 const reviewSchedule = {
   again: { label: 'Не знаю', days: 1 },
   hard: { label: 'Сложно', days: 3 },
@@ -149,6 +163,11 @@ const mergeCloudRows = (rows) => {
 };
 const syncProgress = async () => {
   if (!session || cloudSyncInProgress) return;
+  if (!navigator.onLine) {
+    cloudState = 'Нет сети · данные сохранены на устройстве';
+    render();
+    return;
+  }
   cloudSyncInProgress = true;
   cloudState = 'Синхронизация…';
   render();
@@ -336,7 +355,7 @@ function render() {
         <div class="header-controls">
           <label class="answer-preference" for="answers-toggle"><span>Показывать ответы</span><input id="answers-toggle" type="checkbox" ${showAnswersByDefault ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
           <label class="answer-preference" for="order-toggle"><span>По порядку</span><input id="order-toggle" type="checkbox" ${questionsInOrder ? 'checked' : ''} /><span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span></label>
-          ${session ? `<span class="sync-state" title="${cloudState}">☁ ${cloudState}</span><button class="account-button" id="sign-out" type="button">Выйти</button>` : `<button class="account-button" id="sign-in" type="button" ${cloudState === 'Открываем Яндекс ID…' ? 'disabled' : ''}>Войти через Яндекс ID</button>`}
+          ${session ? `<div class="account-summary" title="Прогресс сохраняется в вашем аккаунте Яндекс ID"><span class="account-avatar">${accountInitial()}</span><span class="account-name">${escapeHtml(accountName())}</span></div><span class="sync-state ${cloudState.startsWith('Ошибка') || cloudState.startsWith('Нет сети') ? 'sync-problem' : ''}" title="${cloudState}">☁ ${cloudState}</span>${cloudState.startsWith('Ошибка') ? '<button class="retry-sync" id="retry-sync" type="button">Повторить</button>' : ''}<button class="account-button" id="sign-out" type="button">Выйти</button>` : `<button class="account-button" id="sign-in" type="button" ${cloudState === 'Открываем Яндекс ID…' ? 'disabled' : ''}>Войти через Яндекс ID</button>`}
           <button class="reset-progress" id="reset-progress" type="button">Сбросить прогресс</button>
           <span class="part">Подготовка к интервью · Части 1–3</span>
         </div>
@@ -352,6 +371,7 @@ function render() {
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
       </nav>
       <section class="study-dashboard" aria-label="Прогресс обучения"><div><span>Изучено</span><b>${completedCount(questions)} <small>/ ${questions.length}</small></b></div><div><span>Повторить сегодня</span><b>${todayDueCount}</b></div><div><span>Ближайшее повторение</span><b class="date-stat">${nextReviewLabel()}</b></div><div><span>Оценки</span><b class="rating-stat"><i>${ratingCounts.again}</i><em>${ratingCounts.hard}</em><strong>${ratingCounts.good}</strong></b></div></section>
+      <section class="review-plan" aria-label="План интервальных повторений"><div class="review-plan-heading"><div><span>План повторений</span><small>Расписание обновляется после каждой оценки.</small></div><span class="review-plan-note">${todayDueCount ? `Сегодня: ${todayDueCount}` : 'На сегодня свободно'}</span></div><div class="review-calendar">${reviewPlan().map((item) => `<div class="review-day ${item.isToday ? 'today' : ''} ${item.count ? 'has-reviews' : ''}"><span>${item.label}</span><small>${item.day}</small><b>${item.count || '—'}</b><em>${item.count ? (item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов') : 'нет'}</em></div>`).join('')}</div></section>
       <div class="view-switch">
         <div><span class="view-title">${reviewMode ? 'Интервальное повторение' : newQuestionsMode ? 'Новые вопросы' : 'Режим тренировки'}</span><span class="view-description">${reviewMode ? `Повторено в этой сессии: ${reviewSession.completed} из ${reviewSession.total}` : newQuestionsMode ? 'Вопросы, которые ещё не получили оценку' : catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
         <div class="view-actions"><button class="new-toggle ${newQuestionsMode ? 'active' : ''}" id="new-toggle" type="button">✦ Новые <span>${questions.filter((item) => !reviewProgress[item.question]?.repetitions).length}</span></button><button class="review-toggle ${reviewMode ? 'active' : ''}" id="review-toggle" type="button">↻ Повторить сегодня <span>${todayDueCount}</span></button><button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button></div>
@@ -408,6 +428,7 @@ function render() {
   });
   document.querySelector('#sign-in')?.addEventListener('click', signInWithYandex);
   document.querySelector('#sign-out')?.addEventListener('click', signOut);
+  document.querySelector('#retry-sync')?.addEventListener('click', () => void syncProgress());
   document.querySelector('#review-toggle').addEventListener('click', () => {
     const count = dueCount();
     reviewMode = newQuestionsMode ? true : !reviewMode;
@@ -469,6 +490,15 @@ function render() {
 
 render();
 void initialiseCloudSync();
+window.addEventListener('online', () => {
+  if (session) void syncProgress();
+});
+window.addEventListener('offline', () => {
+  if (session) {
+    cloudState = 'Нет сети · данные сохранены на устройстве';
+    render();
+  }
+});
 supabase.auth.onAuthStateChange((_event, nextSession) => {
   session = nextSession;
   if (session) void syncProgress();
