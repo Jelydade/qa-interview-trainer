@@ -99,6 +99,7 @@ let savedReview = null;
 let catalogOpen = false;
 let catalogSearch = '';
 let onboardingDismissed = getOnboardingDismissed();
+let calendarDateFilter = null;
 
 const accountName = () => session?.user?.user_metadata?.name || 'Мой прогресс';
 const accountInitial = () => accountName().trim().slice(0, 1).toLocaleUpperCase('ru-RU') || 'Я';
@@ -138,7 +139,11 @@ const reviewPlan = () => Array.from({ length: 7 }, (_, index) => {
   const count = questionKeys.length;
   const label = index === 0 ? 'Сегодня' : index === 1 ? 'Завтра' : new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(date);
   const day = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(date);
-  return { label, day, count, questionKeys, isToday: index === 0 };
+  return { dateKey, label, day, count, questionKeys, isToday: index === 0 };
+});
+const plannedQuestionsForDate = (dateKey) => questions.filter((question) => {
+  const nextReviewAt = reviewProgress[question.question]?.nextReviewAt;
+  return dateKey === localDate() ? nextReviewAt <= dateKey : nextReviewAt === dateKey;
 });
 const reviewSchedule = {
   again: { label: 'Не знаю', days: 1 },
@@ -357,7 +362,8 @@ function render() {
   const ratings = Object.values(reviewProgress);
   const ratingCounts = { again: ratings.filter((item) => item.repetitions > 1 && item.lastRating === 'again').length, hard: ratings.filter((item) => item.repetitions > 1 && item.lastRating === 'hard').length, good: ratings.filter((item) => item.repetitions > 1 && item.lastRating === 'good').length };
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU');
-  const catalogQuestions = pool.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
+  const catalogSource = calendarDateFilter ? plannedQuestionsForDate(calendarDateFilter.dateKey) : pool;
+  const catalogQuestions = catalogSource.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
   app.innerHTML = `
     <div class="orb orb-one"></div><div class="orb orb-two"></div>
     <section class="shell">
@@ -383,14 +389,14 @@ function render() {
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
       </nav>
       <section class="study-dashboard" aria-label="Прогресс обучения"><div><span>Изучено</span><b>${completedCount(questions)} <small>/ ${questions.length}</small></b></div><div><span>Повторить сегодня</span><b>${todayDueCount}</b></div><div><span>Ближайшее повторение</span><b class="date-stat">${nextReviewLabel()}</b></div><div><span>Оценки</span><b class="rating-stat"><i>${ratingCounts.again}</i><em>${ratingCounts.hard}</em><strong>${ratingCounts.good}</strong></b></div></section>
-      <section class="review-plan" aria-label="План интервальных повторений"><div class="review-plan-heading"><div><span>План повторений</span><small>Наведите на день с вопросами, чтобы увидеть список.</small></div><span class="review-plan-note">${todayDueCount ? `Сегодня: ${todayDueCount}` : 'На сегодня свободно'}</span></div><div class="review-calendar">${reviewPlan().map((item) => `<div class="review-day ${item.isToday ? 'today' : ''} ${item.count ? 'has-reviews' : ''}" ${item.count ? 'tabindex="0"' : ''}><span>${item.label}</span><small>${item.day}</small><b>${item.count || '—'}</b><em>${item.count ? (item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов') : 'нет'}</em>${item.count ? `<div class="review-tooltip" role="tooltip"><b>${item.label}: ${item.count} ${item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов'}</b><ul>${item.questionKeys.map((question) => `<li>${escapeHtml(question)}</li>`).join('')}</ul></div>` : ''}</div>`).join('')}</div></section>
+      <section class="review-plan" aria-label="План интервальных повторений"><div class="review-plan-heading"><div><span>План повторений</span><small>Наведите на день с вопросами для списка или нажмите, чтобы открыть их.</small></div><span class="review-plan-note">${todayDueCount ? `Сегодня: ${todayDueCount}` : 'На сегодня свободно'}</span></div><div class="review-calendar">${reviewPlan().map((item) => `<button class="review-day ${item.isToday ? 'today' : ''} ${item.count ? 'has-reviews' : ''}" type="button" ${item.count ? `data-plan-date="${item.dateKey}" data-plan-label="${item.label}" data-plan-day="${item.day}"` : 'disabled'}><span>${item.label}</span><small>${item.day}</small><b>${item.count || '—'}</b><em>${item.count ? (item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов') : 'нет'}</em>${item.count ? `<span class="review-tooltip" role="tooltip"><b>${item.label}: ${item.count} ${item.count === 1 ? 'вопрос' : item.count < 5 ? 'вопроса' : 'вопросов'}</b><span class="review-tooltip-list">${item.questionKeys.map((question) => `<span>• ${escapeHtml(question)}</span>`).join('')}</span></span>` : ''}</button>`).join('')}</div></section>
       <div class="view-switch">
         <div><span class="view-title">${reviewMode ? 'Интервальное повторение' : newQuestionsMode ? 'Новые вопросы' : 'Режим тренировки'}</span><span class="view-description">${reviewMode ? `Повторено в этой сессии: ${reviewSession.completed} из ${reviewSession.total}` : newQuestionsMode ? 'Вопросы, которые ещё не получили оценку' : catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
         <div class="view-actions"><button class="new-toggle ${newQuestionsMode ? 'active' : ''}" id="new-toggle" type="button">✦ Новые <span>${questions.filter((item) => !reviewProgress[item.question]?.repetitions).length}</span></button><button class="review-toggle ${reviewMode ? 'active' : ''}" id="review-toggle" type="button">↻ Повторить сегодня <span>${todayDueCount}</span></button><button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button></div>
       </div>
       <section class="catalog ${catalogOpen ? 'open' : ''}" aria-label="Список вопросов">
-        <div class="catalog-header"><div><p class="catalog-eyebrow">КАТАЛОГ</p><h2>Все вопросы <span>${pool.length}</span></h2></div><label class="search"><span>⌕</span><input id="catalog-search" type="search" value="${escapeHtml(catalogSearch)}" placeholder="Найти вопрос" aria-label="Поиск вопроса" /></label></div>
-        <p class="catalog-result">${catalogQuestions.length === pool.length ? 'Выберите вопрос, чтобы открыть карточку с ответом.' : `Найдено: ${catalogQuestions.length}`}</p>
+        <div class="catalog-header"><div><p class="catalog-eyebrow">${calendarDateFilter ? `ПОВТОРЕНИЯ · ${calendarDateFilter.day}` : 'КАТАЛОГ'}</p><h2>${calendarDateFilter ? calendarDateFilter.label : 'Все вопросы'} <span>${catalogSource.length}</span></h2></div><label class="search"><span>⌕</span><input id="catalog-search" type="search" value="${escapeHtml(catalogSearch)}" placeholder="Найти вопрос" aria-label="Поиск вопроса" /></label></div>
+        <p class="catalog-result">${calendarDateFilter ? 'Выберите вопрос из плана повторений.' : catalogQuestions.length === pool.length ? 'Выберите вопрос, чтобы открыть карточку с ответом.' : `Найдено: ${catalogQuestions.length}`}</p>
         <div class="question-list">
           ${catalogQuestions.length ? catalogQuestions.map((item) => {
             const index = questions.indexOf(item);
@@ -421,7 +427,7 @@ function render() {
     </section>`;
 
   document.querySelectorAll('[data-section]').forEach((button) => {
-    button.addEventListener('click', () => { activeSection = button.dataset.section; reviewMode = false; newQuestionsMode = false; reviewSession.finished = false; seen = new Set(); currentQuestion = null; nextQuestion(); });
+    button.addEventListener('click', () => { activeSection = button.dataset.section; reviewMode = false; newQuestionsMode = false; calendarDateFilter = null; reviewSession.finished = false; seen = new Set(); currentQuestion = null; nextQuestion(); });
   });
   document.querySelector('#answer-button')?.addEventListener('click', () => { answerVisible = !answerVisible; render(); });
   document.querySelector('#answers-toggle').addEventListener('change', (event) => {
@@ -451,6 +457,7 @@ function render() {
     const count = dueCount();
     reviewMode = newQuestionsMode ? true : !reviewMode;
     newQuestionsMode = false;
+    calendarDateFilter = null;
     catalogOpen = false;
     seen = new Set();
     currentQuestion = null;
@@ -460,6 +467,7 @@ function render() {
   document.querySelector('#new-toggle').addEventListener('click', () => {
     newQuestionsMode = reviewMode ? true : !newQuestionsMode;
     reviewMode = false;
+    calendarDateFilter = null;
     reviewSession.finished = false;
     catalogOpen = false;
     seen = new Set();
@@ -484,7 +492,7 @@ function render() {
   });
   document.querySelector('#schedule-first-review')?.addEventListener('click', scheduleFirstReview);
   document.querySelector('#next-button').addEventListener('click', nextQuestion);
-  document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; render(); });
+  document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; if (!catalogOpen) calendarDateFilter = null; render(); });
   document.querySelector('#catalog-search')?.addEventListener('input', (event) => {
     catalogSearch = event.target.value;
     render();
@@ -500,8 +508,21 @@ function render() {
       savedReview = null;
       answerVisible = reviewMode ? false : showAnswersByDefault;
       catalogOpen = false;
+      calendarDateFilter = null;
       render();
       document.querySelector('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+  document.querySelectorAll('[data-plan-date]').forEach((button) => {
+    button.addEventListener('click', () => {
+      calendarDateFilter = { dateKey: button.dataset.planDate, label: button.dataset.planLabel, day: button.dataset.planDay };
+      activeSection = 'all';
+      reviewMode = false;
+      newQuestionsMode = false;
+      catalogSearch = '';
+      catalogOpen = true;
+      render();
+      document.querySelector('.catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
 }
