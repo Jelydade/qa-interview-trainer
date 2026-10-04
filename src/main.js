@@ -20,6 +20,7 @@ const app = document.querySelector('#app');
 const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
 const ORDER_PREFERENCE_KEY = 'aqa-trainer.questions-in-order';
 const COMPLETED_QUESTIONS_KEY = 'aqa-trainer.completed-questions';
+const REVIEW_PROGRESS_KEY = 'aqa-trainer.review-progress-v1';
 const getSavedAnswerPreference = () => {
   try {
     return localStorage.getItem(ANSWER_PREFERENCE_KEY) === 'true';
@@ -48,17 +49,17 @@ const saveOrderPreference = (value) => {
     // Приложение остаётся рабочим, если хранилище недоступно.
   }
 };
-const getSavedCompletedQuestions = () => {
+const getSavedReviewProgress = () => {
   try {
-    const saved = JSON.parse(localStorage.getItem(COMPLETED_QUESTIONS_KEY) ?? '[]');
-    return new Set(Array.isArray(saved) ? saved : []);
+    const saved = JSON.parse(localStorage.getItem(REVIEW_PROGRESS_KEY) ?? '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
   } catch {
-    return new Set();
+    return {};
   }
 };
-const saveCompletedQuestions = () => {
+const saveReviewProgress = () => {
   try {
-    localStorage.setItem(COMPLETED_QUESTIONS_KEY, JSON.stringify([...completedQuestions]));
+    localStorage.setItem(REVIEW_PROGRESS_KEY, JSON.stringify(reviewProgress));
   } catch {
     // Приложение остаётся рабочим, если хранилище недоступно.
   }
@@ -70,12 +71,52 @@ let showAnswersByDefault = getSavedAnswerPreference();
 let questionsInOrder = getSavedOrderPreference();
 let answerVisible = showAnswersByDefault;
 let seen = new Set();
-let completedQuestions = getSavedCompletedQuestions();
+let reviewProgress = getSavedReviewProgress();
+let reviewMode = false;
 let catalogOpen = false;
 let catalogSearch = '';
 
-const availableQuestions = () =>
-  activeSection === 'all' ? questions : questions.filter((item) => item.section === activeSection);
+const localDate = (date = new Date()) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 10);
+};
+const dateAfterDays = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return localDate(date);
+};
+const baseQuestions = () => activeSection === 'all' ? questions : questions.filter((item) => item.section === activeSection);
+const isDueForReview = (question) => reviewProgress[question.question]?.nextReviewAt <= localDate();
+const availableQuestions = () => reviewMode ? baseQuestions().filter(isDueForReview) : baseQuestions();
+const completedCount = (pool) => pool.filter((item) => reviewProgress[item.question]?.repetitions > 0).length;
+const dueCount = () => questions.filter(isDueForReview).length;
+const reviewSchedule = {
+  again: { label: 'Не знаю', days: 1 },
+  hard: { label: 'Сложно', days: 3 },
+  good: { label: 'Знаю', days: null },
+};
+const scheduleReview = (rating) => {
+  const previous = reviewProgress[currentQuestion.question] ?? { intervalDays: 0, repetitions: 0 };
+  const nextInterval = rating === 'good'
+    ? ([7, 14, 30, 60, 120].find((days) => days > previous.intervalDays) ?? 120)
+    : reviewSchedule[rating].days;
+  reviewProgress = {
+    ...reviewProgress,
+    [currentQuestion.question]: {
+      nextReviewAt: dateAfterDays(nextInterval),
+      intervalDays: nextInterval,
+      repetitions: previous.repetitions + 1,
+      lastRating: rating,
+      reviewedAt: new Date().toISOString(),
+    },
+  };
+  saveReviewProgress();
+  if (reviewMode && !availableQuestions().length) {
+    reviewMode = false;
+    currentQuestion = null;
+  }
+  nextQuestion();
+};
 
 const randomQuestion = () => {
   const pool = availableQuestions();
@@ -115,8 +156,10 @@ function render() {
     currentQuestion = questionsInOrder ? pool[0] : pool[Math.floor(Math.random() * pool.length)];
   }
   const pool = availableQuestions();
-  const completedInPool = pool.filter((item) => completedQuestions.has(item.question)).length;
-  const questionCompleted = completedQuestions.has(currentQuestion.question);
+  const completedInPool = completedCount(baseQuestions());
+  const questionProgress = reviewProgress[currentQuestion.question];
+  const questionCompleted = questionProgress?.repetitions > 0;
+  const todayDueCount = dueCount();
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU');
   const catalogQuestions = pool.filter((item) => !normalizedSearch || item.question.toLocaleLowerCase('ru-RU').includes(normalizedSearch));
   app.innerHTML = `
@@ -141,8 +184,8 @@ function render() {
         ${sections.map((item) => `<button class="filter ${activeSection === item.id ? 'active' : ''}" data-section="${item.id}">${item.label} <span>${questions.filter((q) => q.section === item.id).length}</span></button>`).join('')}
       </nav>
       <div class="view-switch">
-        <div><span class="view-title">Режим тренировки</span><span class="view-description">${catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
-        <button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button>
+        <div><span class="view-title">${reviewMode ? 'Интервальное повторение' : 'Режим тренировки'}</span><span class="view-description">${reviewMode ? 'Вопросы, которые пора повторить сегодня' : catalogOpen ? 'Выберите вопрос из списка' : questionsInOrder ? 'Следующий вопрос из выбранного раздела — по порядку' : 'Случайный вопрос из выбранного раздела'}</span></div>
+        <div class="view-actions"><button class="review-toggle ${reviewMode ? 'active' : ''}" id="review-toggle" type="button">↻ Повторить сегодня <span>${todayDueCount}</span></button><button class="catalog-toggle ${catalogOpen ? 'active' : ''}" id="catalog-toggle" aria-expanded="${catalogOpen}"><span class="catalog-icon">☷</span>${catalogOpen ? 'Вернуться к карточке' : 'Все вопросы'}</button></div>
       </div>
       <section class="catalog ${catalogOpen ? 'open' : ''}" aria-label="Список вопросов">
         <div class="catalog-header"><div><p class="catalog-eyebrow">КАТАЛОГ</p><h2>Все вопросы <span>${pool.length}</span></h2></div><label class="search"><span>⌕</span><input id="catalog-search" type="search" value="${escapeHtml(catalogSearch)}" placeholder="Найти вопрос" aria-label="Поиск вопроса" /></label></div>
@@ -150,13 +193,13 @@ function render() {
         <div class="question-list">
           ${catalogQuestions.length ? catalogQuestions.map((item) => {
             const index = questions.indexOf(item);
-            const completed = completedQuestions.has(item.question);
+            const completed = reviewProgress[item.question]?.repetitions > 0;
             return `<button class="question-item ${item === currentQuestion ? 'selected' : ''} ${completed ? 'completed' : ''}" data-question-index="${index}"><span class="list-number">${completed ? '✓' : String(index + 1).padStart(2, '0')}</span><span class="list-question">${item.question}${completed ? '<span class="completed-status">Пройдено</span>' : ''}</span><span class="list-topic ${item.section}">${sectionLabel(item.section)}</span><span class="list-arrow">→</span></button>`;
           }).join('') : '<p class="empty-list">Ничего не найдено. Попробуйте другой запрос.</p>'}
         </div>
       </section>
       <section class="card" aria-live="polite">
-        <div class="card-top"><span class="topic ${currentQuestion.section}">${sectionLabel(currentQuestion.section)}</span><span class="counter">${completedInPool} / ${pool.length} пройдено</span></div>
+        <div class="card-top"><span class="topic ${currentQuestion.section}">${sectionLabel(currentQuestion.section)}</span><span class="counter">${completedInPool} / ${baseQuestions().length} изучено</span></div>
         <p class="question-number">ВОПРОС</p>
         <h2>${currentQuestion.question}</h2>
         <div class="answer ${answerVisible ? 'shown' : ''}">
@@ -168,7 +211,7 @@ function render() {
         </div>
         <div class="actions">
           <button class="secondary" id="answer-button">${answerVisible ? 'Скрыть ответ' : 'Показать ответ'}</button>
-          <label class="completion-control ${questionCompleted ? 'completed' : ''}" for="complete-question"><input id="complete-question" type="checkbox" ${questionCompleted ? 'checked' : ''} /><span class="completion-check" aria-hidden="true">✓</span><span>${questionCompleted ? 'Пройдено' : 'Отметить как пройденное'}</span></label>
+          ${answerVisible ? `<div class="review-ratings" aria-label="Оцените, насколько уверенно вы ответили"><span class="review-prompt">Как получилось?</span><button class="rating again" data-rating="again">Не знаю <small>1 день</small></button><button class="rating hard" data-rating="hard">Сложно <small>3 дня</small></button><button class="rating good" data-rating="good">Знаю <small>${questionProgress?.intervalDays ? `→ ${([7, 14, 30, 60, 120].find((days) => days > questionProgress.intervalDays) ?? 120)} дней` : '7 дней'}</small></button></div>` : ''}
           <button class="primary" id="next-button">Следующий вопрос <span>→</span></button>
         </div>
       </section>
@@ -176,7 +219,7 @@ function render() {
     </section>`;
 
   document.querySelectorAll('[data-section]').forEach((button) => {
-    button.addEventListener('click', () => { activeSection = button.dataset.section; seen = new Set(); currentQuestion = null; nextQuestion(); });
+    button.addEventListener('click', () => { activeSection = button.dataset.section; reviewMode = false; seen = new Set(); currentQuestion = null; nextQuestion(); });
   });
   document.querySelector('#answer-button').addEventListener('click', () => { answerVisible = !answerVisible; render(); });
   document.querySelector('#answers-toggle').addEventListener('change', (event) => {
@@ -190,17 +233,27 @@ function render() {
     saveOrderPreference(questionsInOrder);
     render();
   });
-  document.querySelector('#complete-question').addEventListener('change', (event) => {
-    if (event.target.checked) completedQuestions.add(currentQuestion.question);
-    else completedQuestions.delete(currentQuestion.question);
-    saveCompletedQuestions();
+  document.querySelector('#reset-progress').addEventListener('click', () => {
+    if (!Object.keys(reviewProgress).length || !window.confirm('Сбросить историю изучения и расписание повторений для всех вопросов? Это действие нельзя отменить.')) return;
+    reviewProgress = {};
+    try { localStorage.removeItem(COMPLETED_QUESTIONS_KEY); } catch { /* Старые отметки можно безопасно игнорировать. */ }
+    saveReviewProgress();
     render();
   });
-  document.querySelector('#reset-progress').addEventListener('click', () => {
-    if (!completedQuestions.size || !window.confirm('Сбросить отметки о прохождении всех вопросов? Это действие нельзя отменить.')) return;
-    completedQuestions = new Set();
-    saveCompletedQuestions();
-    render();
+  document.querySelector('#review-toggle').addEventListener('click', () => {
+    const count = dueCount();
+    if (!count) {
+      window.alert('На сегодня повторений нет. Вернитесь завтра или продолжайте изучать новые вопросы.');
+      return;
+    }
+    reviewMode = !reviewMode;
+    catalogOpen = false;
+    seen = new Set();
+    currentQuestion = null;
+    nextQuestion();
+  });
+  document.querySelectorAll('[data-rating]').forEach((button) => {
+    button.addEventListener('click', () => scheduleReview(button.dataset.rating));
   });
   document.querySelector('#next-button').addEventListener('click', nextQuestion);
   document.querySelector('#catalog-toggle').addEventListener('click', () => { catalogOpen = !catalogOpen; render(); });
