@@ -293,7 +293,7 @@ const randomQuestion = () => {
   seen.add(currentQuestion.question);
   selectedRating = null;
   savedReview = null;
-  answerVisible = showAnswersByDefault;
+  answerVisible = reviewMode ? false : showAnswersByDefault;
   render();
 };
 
@@ -311,7 +311,7 @@ const orderedQuestion = () => {
   seen.add(currentQuestion.question);
   selectedRating = null;
   savedReview = null;
-  answerVisible = showAnswersByDefault;
+  answerVisible = reviewMode ? false : showAnswersByDefault;
   render();
 };
 
@@ -334,6 +334,7 @@ function render() {
   const hasQuestions = pool.length > 0;
   if (!currentQuestion && hasQuestions) {
     currentQuestion = questionsInOrder ? pool[0] : pool[Math.floor(Math.random() * pool.length)];
+    answerVisible = reviewMode ? false : showAnswersByDefault;
   }
   const completedInPool = completedCount(baseQuestions());
   const questionProgress = currentQuestion ? reviewProgress[currentQuestion.question] : null;
@@ -392,6 +393,7 @@ function render() {
         <div class="card-top"><span class="topic ${currentQuestion.section}">${sectionLabel(currentQuestion.section)}</span><span class="counter">${completedInPool} / ${baseQuestions().length} изучено</span></div>
         <p class="question-number">ВОПРОС</p>
         <h2>${currentQuestion.question}</h2>
+        ${reviewMode && !answerVisible && !savedReview ? `<div class="active-recall" aria-live="polite"><span>◌</span><div><b>Сначала ответьте сами</b><p>Сформулируйте определение, объясните смысл и приведите короткий пример. Затем откройте ответ и оцените уверенность.</p></div></div>` : ''}
         <div class="answer ${answerVisible ? 'shown' : ''}">
           <div class="answer-rule"></div>
           <p class="answer-title">Сильный ответ</p>
@@ -400,7 +402,7 @@ function render() {
           <aside><span>✦</span><div><b>На заметку</b><p>${currentQuestion.tip}</p></div></aside>
         </div>
         <div class="actions">
-          <button class="secondary" id="answer-button">${answerVisible ? 'Скрыть ответ' : 'Показать ответ'}</button>
+          <button class="secondary" id="answer-button">${answerVisible ? 'Скрыть ответ' : reviewMode ? 'Показать ответ и оценить' : 'Показать ответ'}</button>
           ${answerVisible ? `<div class="review-ratings" aria-label="План повторения">${savedReview ? `<div class="rating-saved" role="status"><span>✓</span><div><b>${savedReview.label === 'Первое повторение' ? 'Первое повторение запланировано' : 'Ответ сохранён'}</b><small>${savedReview.label === 'Первое повторение' ? 'Вернитесь к этому вопросу завтра: тогда можно будет оценить уверенность.' : `«${savedReview.label}» — вернёмся к вопросу через ${savedReview.intervalDays} ${savedReview.intervalDays === 1 ? 'день' : savedReview.intervalDays < 5 ? 'дня' : 'дней'}.`}</small></div></div>` : isFirstStudy ? `<div class="first-study"><div><span class="review-prompt">Первое знакомство</span><small>Прочитайте ответ, разберите непонятные места — и закрепите материал активным воспроизведением завтра.</small></div><button class="confirm-rating" id="schedule-first-review" type="button">Изучил — повторить завтра <span>→</span></button></div>` : isWaitingForFirstReview ? `<div class="waiting-review"><span>◷</span><div><b>Первое повторение запланировано</b><small>Оценка появится завтра, когда вопрос станет доступен для активного воспроизведения.</small></div></div>` : `<div class="review-heading"><span class="review-prompt">Как получилось?</span><small>Выберите вариант, затем подтвердите оценку.</small></div><div class="rating-options" role="radiogroup" aria-label="Насколько уверенно вы ответили"><button class="rating again ${selectedRating === 'again' ? 'selected' : ''}" data-rating="again" role="radio" aria-checked="${selectedRating === 'again'}">Не знаю <small>Повторить через 1 день</small></button><button class="rating hard ${selectedRating === 'hard' ? 'selected' : ''}" data-rating="hard" role="radio" aria-checked="${selectedRating === 'hard'}">Сложно <small>Повторить через 3 дня</small></button><button class="rating good ${selectedRating === 'good' ? 'selected' : ''}" data-rating="good" role="radio" aria-checked="${selectedRating === 'good'}">Знаю <small>Повторить через ${questionProgress?.intervalDays ? `${selectedSchedule} дней` : '7 дней'}</small></button></div><div class="rating-confirm"><span>${selectedRating ? `Выбрано: ${reviewSchedule[selectedRating].label}. Следующее повторение — через ${selectedSchedule} ${selectedSchedule === 1 ? 'день' : selectedSchedule < 5 ? 'дня' : 'дней'}.` : 'Сначала выберите, насколько уверенно вы ответили.'}</span><button class="confirm-rating" id="confirm-rating" type="button" ${selectedRating ? '' : 'disabled'}>Запомнить результат <span>✓</span></button></div>`}</div>` : ''}
           <button class="primary" id="next-button">Следующий вопрос <span>→</span></button>
         </div>
@@ -481,7 +483,7 @@ function render() {
       seen.add(currentQuestion.question);
       selectedRating = null;
       savedReview = null;
-      answerVisible = showAnswersByDefault;
+      answerVisible = reviewMode ? false : showAnswersByDefault;
       catalogOpen = false;
       render();
       document.querySelector('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
