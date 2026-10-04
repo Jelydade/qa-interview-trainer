@@ -14,6 +14,7 @@ import { studyAdditionsPytestWeb } from './studyAdditionsPytestWeb.js';
 import { studyAdditionsInfrastructure } from './studyAdditionsInfrastructure.js';
 import { studyAdditionsAutomation } from './studyAdditionsAutomation.js';
 import { studyAdditionsFinal } from './studyAdditionsFinal.js';
+import { documentAnswers } from './documentAnswers.js';
 
 const app = document.querySelector('#app');
 const ANSWER_PREFERENCE_KEY = 'aqa-trainer.show-answers';
@@ -140,8 +141,8 @@ function render() {
         <div class="answer ${answerVisible ? 'shown' : ''}">
           <div class="answer-rule"></div>
           <p class="answer-title">Сильный ответ</p>
-          ${currentQuestion.answerHtml ?? studyAnswers[currentQuestion.question] ?? currentQuestion.answer.split('\n\n').map((text) => `<p>${text}</p>`).join('')}
-          ${studyAdditions[currentQuestion.question] ?? studyAdditionsFoundations[currentQuestion.question] ?? studyAdditionsArchitecture[currentQuestion.question] ?? studyAdditionsLanguages[currentQuestion.question] ?? studyAdditionsOopAlgorithms[currentQuestion.question] ?? studyAdditionsPython[currentQuestion.question] ?? studyAdditionsPythonAdvanced[currentQuestion.question] ?? studyAdditionsPytestWeb[currentQuestion.question] ?? studyAdditionsInfrastructure[currentQuestion.question] ?? studyAdditionsAutomation[currentQuestion.question] ?? studyAdditionsFinal[currentQuestion.question] ?? ''}
+          ${documentAnswers[currentQuestion.question] ?? currentQuestion.answerHtml ?? studyAnswers[currentQuestion.question] ?? currentQuestion.answer.split('\n\n').map((text) => `<p>${text}</p>`).join('')}
+          ${documentAnswers[currentQuestion.question] ? '' : (studyAdditions[currentQuestion.question] ?? studyAdditionsFoundations[currentQuestion.question] ?? studyAdditionsArchitecture[currentQuestion.question] ?? studyAdditionsLanguages[currentQuestion.question] ?? studyAdditionsOopAlgorithms[currentQuestion.question] ?? studyAdditionsPython[currentQuestion.question] ?? studyAdditionsPythonAdvanced[currentQuestion.question] ?? studyAdditionsPytestWeb[currentQuestion.question] ?? studyAdditionsInfrastructure[currentQuestion.question] ?? studyAdditionsAutomation[currentQuestion.question] ?? studyAdditionsFinal[currentQuestion.question] ?? '')}
           <aside><span>✦</span><div><b>На заметку</b><p>${currentQuestion.tip}</p></div></aside>
         </div>
         <div class="actions">
